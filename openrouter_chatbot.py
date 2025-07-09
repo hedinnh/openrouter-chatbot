@@ -1,0 +1,303 @@
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox
+import requests
+import json
+import os
+import threading
+import pyttsx3
+from datetime import datetime
+import re
+
+class OpenRouterChatbot:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("OpenRouter AI Chat")
+        self.root.geometry("1000x700")
+        
+        # Set modern dark theme colors
+        self.bg_color = "#1e1e1e"
+        self.fg_color = "#ffffff"
+        self.accent_color = "#007acc"
+        self.hover_color = "#005a9e"
+        self.entry_bg = "#2d2d2d"
+        self.button_bg = "#3c3c3c"
+        self.chat_bg = "#252526"
+        
+        self.root.configure(bg=self.bg_color)
+        
+        # Initialize TTS engine
+        self.tts_engine = pyttsx3.init()
+        self.tts_enabled = tk.BooleanVar(value=False)
+        
+        # Initialize variables
+        self.api_key = ""
+        self.selected_model = tk.StringVar()
+        self.models = []
+        self.conversation_history = []
+        self.memory_file = "chat_memory.json"
+        
+        # Load memory if exists
+        self.load_memory()
+        
+        # Create GUI
+        self.create_widgets()
+        
+        # Apply custom styles
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        self.configure_styles()
+        
+    def configure_styles(self):
+        # Configure ttk styles for modern look
+        self.style.configure("TLabel", background=self.bg_color, foreground=self.fg_color)
+        self.style.configure("TFrame", background=self.bg_color)
+        self.style.configure("TCombobox", fieldbackground=self.entry_bg, background=self.button_bg, foreground=self.fg_color)
+        self.style.configure("TCheckbutton", background=self.bg_color, foreground=self.fg_color)
+        self.style.map('TCombobox', fieldbackground=[('readonly', self.entry_bg)])
+        
+    def create_widgets(self):
+        # Main container
+        main_frame = ttk.Frame(self.root, style="TFrame")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Settings Frame
+        settings_frame = ttk.Frame(main_frame, style="TFrame")
+        settings_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # API Key Section
+        api_frame = ttk.Frame(settings_frame, style="TFrame")
+        api_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(api_frame, text="API Key:", style="TLabel").pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.api_key_entry = tk.Entry(api_frame, show="*", bg=self.entry_bg, fg=self.fg_color, 
+                                     insertbackground=self.fg_color, bd=0, font=("Arial", 10))
+        self.api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        self.save_key_btn = tk.Button(api_frame, text="Save Key", command=self.save_api_key,
+                                      bg=self.accent_color, fg=self.fg_color, bd=0, padx=15, pady=5,
+                                      font=("Arial", 10, "bold"), cursor="hand2")
+        self.save_key_btn.pack(side=tk.LEFT)
+        self.save_key_btn.bind("<Enter>", lambda e: self.save_key_btn.config(bg=self.hover_color))
+        self.save_key_btn.bind("<Leave>", lambda e: self.save_key_btn.config(bg=self.accent_color))
+        
+        # Model Selection and TTS Frame
+        model_tts_frame = ttk.Frame(settings_frame, style="TFrame")
+        model_tts_frame.pack(fill=tk.X)
+        
+        # Model Selection
+        model_frame = ttk.Frame(model_tts_frame, style="TFrame")
+        model_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 20))
+        
+        ttk.Label(model_frame, text="Model:", style="TLabel").pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.model_dropdown = ttk.Combobox(model_frame, textvariable=self.selected_model, 
+                                          state="readonly", width=50)
+        self.model_dropdown.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # TTS Toggle
+        self.tts_check = ttk.Checkbutton(model_tts_frame, text="Enable Text-to-Speech", 
+                                         variable=self.tts_enabled, style="TCheckbutton")
+        self.tts_check.pack(side=tk.LEFT)
+        
+        # Chat Display
+        chat_frame = ttk.Frame(main_frame, style="TFrame")
+        chat_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        
+        self.chat_display = scrolledtext.ScrolledText(chat_frame, wrap=tk.WORD, bg=self.chat_bg, 
+                                                      fg=self.fg_color, insertbackground=self.fg_color,
+                                                      font=("Arial", 11), bd=0, padx=10, pady=10)
+        self.chat_display.pack(fill=tk.BOTH, expand=True)
+        self.chat_display.config(state=tk.DISABLED)
+        
+        # Configure tags for message styling
+        self.chat_display.tag_config("user", foreground="#4ec9b0")
+        self.chat_display.tag_config("assistant", foreground="#9cdcfe")
+        self.chat_display.tag_config("system", foreground="#ce9178", font=("Arial", 9, "italic"))
+        self.chat_display.tag_config("timestamp", foreground="#858585", font=("Arial", 8))
+        
+        # Input Frame
+        input_frame = ttk.Frame(main_frame, style="TFrame")
+        input_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        self.message_entry = tk.Text(input_frame, height=3, bg=self.entry_bg, fg=self.fg_color,
+                                    insertbackground=self.fg_color, font=("Arial", 11), bd=0, 
+                                    padx=10, pady=10, wrap=tk.WORD)
+        self.message_entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        self.message_entry.bind("<Return>", self.send_message_event)
+        self.message_entry.bind("<Shift-Return>", lambda e: None)
+        
+        # Button Frame
+        button_frame = ttk.Frame(input_frame, style="TFrame")
+        button_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.send_btn = tk.Button(button_frame, text="Send", command=self.send_message,
+                                 bg=self.accent_color, fg=self.fg_color, bd=0, padx=20, pady=10,
+                                 font=("Arial", 11, "bold"), cursor="hand2")
+        self.send_btn.pack(pady=(0, 5))
+        self.send_btn.bind("<Enter>", lambda e: self.send_btn.config(bg=self.hover_color))
+        self.send_btn.bind("<Leave>", lambda e: self.send_btn.config(bg=self.accent_color))
+        
+        self.clear_btn = tk.Button(button_frame, text="Clear", command=self.clear_chat,
+                                  bg=self.button_bg, fg=self.fg_color, bd=0, padx=20, pady=5,
+                                  font=("Arial", 10), cursor="hand2")
+        self.clear_btn.pack()
+        self.clear_btn.bind("<Enter>", lambda e: self.clear_btn.config(bg="#4a4a4a"))
+        self.clear_btn.bind("<Leave>", lambda e: self.clear_btn.config(bg=self.button_bg))
+        
+    def save_api_key(self):
+        self.api_key = self.api_key_entry.get()
+        if self.api_key:
+            self.fetch_models()
+            messagebox.showinfo("Success", "API Key saved successfully!")
+        else:
+            messagebox.showwarning("Warning", "Please enter an API key")
+    
+    def fetch_models(self):
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}"
+            }
+            response = requests.get("https://openrouter.ai/api/v1/models", headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.models = [model['id'] for model in data['data']]
+                self.model_dropdown['values'] = self.models
+                if self.models:
+                    self.selected_model.set(self.models[0])
+            else:
+                messagebox.showerror("Error", f"Failed to fetch models: {response.text}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error fetching models: {str(e)}")
+    
+    def send_message_event(self, event):
+        if not event.state & 0x1:  # Check if Shift is not pressed
+            self.send_message()
+            return "break"
+    
+    def send_message(self):
+        message = self.message_entry.get("1.0", tk.END).strip()
+        if not message:
+            return
+        
+        if not self.api_key:
+            messagebox.showwarning("Warning", "Please set your API key first")
+            return
+        
+        if not self.selected_model.get():
+            messagebox.showwarning("Warning", "Please select a model")
+            return
+        
+        # Clear input
+        self.message_entry.delete("1.0", tk.END)
+        
+        # Display user message
+        self.display_message("You", message, "user")
+        
+        # Add to conversation history
+        self.conversation_history.append({"role": "user", "content": message})
+        
+        # Send request in thread
+        threading.Thread(target=self.get_ai_response, args=(message,), daemon=True).start()
+    
+    def get_ai_response(self, message):
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # Prepare messages with context
+            messages = self.conversation_history[-10:]  # Last 10 messages for context
+            
+            data = {
+                "model": self.selected_model.get(),
+                "messages": messages
+            }
+            
+            response = requests.post("https://openrouter.ai/api/v1/chat/completions", 
+                                   headers=headers, json=data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result['choices'][0]['message']['content']
+                
+                # Display and save response
+                self.root.after(0, self.display_message, "Assistant", ai_response, "assistant")
+                self.conversation_history.append({"role": "assistant", "content": ai_response})
+                
+                # Save to memory
+                self.save_memory()
+                
+                # TTS if enabled
+                if self.tts_enabled.get():
+                    threading.Thread(target=self.speak_text, args=(ai_response,), daemon=True).start()
+            else:
+                self.root.after(0, messagebox.showerror, "Error", f"API Error: {response.text}")
+        except Exception as e:
+            self.root.after(0, messagebox.showerror, "Error", f"Error: {str(e)}")
+    
+    def speak_text(self, text):
+        # Clean text for TTS
+        clean_text = re.sub(r'[*_`#]', '', text)
+        self.tts_engine.say(clean_text)
+        self.tts_engine.runAndWait()
+    
+    def display_message(self, sender, message, tag):
+        self.chat_display.config(state=tk.NORMAL)
+        
+        # Add timestamp
+        timestamp = datetime.now().strftime("%H:%M")
+        self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+        
+        # Add sender and message
+        self.chat_display.insert(tk.END, f"{sender}: ", tag)
+        self.chat_display.insert(tk.END, f"{message}\n\n")
+        
+        self.chat_display.config(state=tk.DISABLED)
+        self.chat_display.see(tk.END)
+    
+    def clear_chat(self):
+        self.chat_display.config(state=tk.NORMAL)
+        self.chat_display.delete("1.0", tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+        self.conversation_history = []
+        self.save_memory()
+        self.display_message("System", "Chat cleared. Memory reset.", "system")
+    
+    def save_memory(self):
+        memory_data = {
+            "conversation_history": self.conversation_history[-50:],  # Keep last 50 messages
+            "last_model": self.selected_model.get(),
+            "timestamp": datetime.now().isoformat()
+        }
+        with open(self.memory_file, 'w') as f:
+            json.dump(memory_data, f, indent=2)
+    
+    def load_memory(self):
+        if os.path.exists(self.memory_file):
+            try:
+                with open(self.memory_file, 'r') as f:
+                    memory_data = json.load(f)
+                    self.conversation_history = memory_data.get("conversation_history", [])
+                    
+                    # Display loaded conversation
+                    for msg in self.conversation_history:
+                        if msg["role"] == "user":
+                            self.display_message("You", msg["content"], "user")
+                        else:
+                            self.display_message("Assistant", msg["content"], "assistant")
+                    
+                    if self.conversation_history:
+                        self.display_message("System", "Previous conversation loaded from memory.", "system")
+            except Exception as e:
+                print(f"Error loading memory: {e}")
+
+def main():
+    root = tk.Tk()
+    app = OpenRouterChatbot(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
