@@ -4,9 +4,26 @@ import requests
 import json
 import os
 import threading
-import pyttsx3
 from datetime import datetime
 import re
+import sys
+
+# Suppress ALSA audio warnings on Linux
+if sys.platform.startswith('linux'):
+    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
+    # Redirect stderr temporarily during pyttsx3 import
+    import io
+    old_stderr = sys.stderr
+    sys.stderr = io.StringIO()
+
+try:
+    import pyttsx3
+except ImportError:
+    pyttsx3 = None
+finally:
+    # Restore stderr
+    if sys.platform.startswith('linux'):
+        sys.stderr = old_stderr
 
 class OpenRouterChatbot:
     def __init__(self, root):
