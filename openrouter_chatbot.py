@@ -26,7 +26,15 @@ class OpenRouterChatbot:
         self.root.configure(bg=self.bg_color)
         
         # Initialize TTS engine
-        self.tts_engine = pyttsx3.init()
+        self.tts_engine = None
+        self.tts_available = False
+        try:
+            self.tts_engine = pyttsx3.init()
+            self.tts_available = True
+        except Exception as e:
+            print(f"TTS initialization failed: {e}")
+            print("TTS will be disabled. Install espeak on Linux: sudo apt-get install espeak")
+        
         self.tts_enabled = tk.BooleanVar(value=False)
         
         # Initialize variables
@@ -96,8 +104,10 @@ class OpenRouterChatbot:
         self.model_dropdown.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         # TTS Toggle
-        self.tts_check = ttk.Checkbutton(model_tts_frame, text="Enable Text-to-Speech", 
-                                         variable=self.tts_enabled, style="TCheckbutton")
+        tts_text = "Enable Text-to-Speech" if self.tts_available else "Text-to-Speech (unavailable)"
+        self.tts_check = ttk.Checkbutton(model_tts_frame, text=tts_text, 
+                                         variable=self.tts_enabled, style="TCheckbutton",
+                                         state="normal" if self.tts_available else "disabled")
         self.tts_check.pack(side=tk.LEFT)
         
         # Chat Display
@@ -239,10 +249,16 @@ class OpenRouterChatbot:
             self.root.after(0, messagebox.showerror, "Error", f"Error: {str(e)}")
     
     def speak_text(self, text):
-        # Clean text for TTS
-        clean_text = re.sub(r'[*_`#]', '', text)
-        self.tts_engine.say(clean_text)
-        self.tts_engine.runAndWait()
+        if not self.tts_available or not self.tts_engine:
+            return
+        
+        try:
+            # Clean text for TTS
+            clean_text = re.sub(r'[*_`#]', '', text)
+            self.tts_engine.say(clean_text)
+            self.tts_engine.runAndWait()
+        except Exception as e:
+            print(f"TTS error: {e}")
     
     def display_message(self, sender, message, tag):
         self.chat_display.config(state=tk.NORMAL)
