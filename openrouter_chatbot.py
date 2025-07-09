@@ -45,12 +45,12 @@ class OpenRouterChatbot:
         self.memory_file = "chat_memory.json"
         self.config_file = "config.json"
         
-        # Load config and memory
-        self.load_config()
-        self.load_memory()
-        
         # Create GUI
         self.create_widgets()
+        
+        # Load config and memory after GUI is created
+        self.load_config()
+        self.load_memory()
         
         # Apply custom styles
         self.style = ttk.Style()
