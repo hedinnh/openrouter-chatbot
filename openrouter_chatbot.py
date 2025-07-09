@@ -43,8 +43,10 @@ class OpenRouterChatbot:
         self.models = []
         self.conversation_history = []
         self.memory_file = "chat_memory.json"
+        self.config_file = "config.json"
         
-        # Load memory if exists
+        # Load config and memory
+        self.load_config()
         self.load_memory()
         
         # Create GUI
@@ -102,12 +104,14 @@ class OpenRouterChatbot:
         self.model_dropdown = ttk.Combobox(model_frame, textvariable=self.selected_model, 
                                           state="readonly", width=50)
         self.model_dropdown.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.model_dropdown.bind("<<ComboboxSelected>>", lambda e: self.save_config())
         
         # TTS Toggle
         tts_text = "Enable Text-to-Speech" if self.tts_available else "Text-to-Speech (unavailable)"
         self.tts_check = ttk.Checkbutton(model_tts_frame, text=tts_text, 
                                          variable=self.tts_enabled, style="TCheckbutton",
-                                         state="normal" if self.tts_available else "disabled")
+                                         state="normal" if self.tts_available else "disabled",
+                                         command=self.save_config)
         self.tts_check.pack(side=tk.LEFT)
         
         # Chat Display
@@ -158,10 +162,46 @@ class OpenRouterChatbot:
     def save_api_key(self):
         self.api_key = self.api_key_entry.get()
         if self.api_key:
+            self.save_config()
             self.fetch_models()
             messagebox.showinfo("Success", "API Key saved successfully!")
         else:
             messagebox.showwarning("Warning", "Please enter an API key")
+    
+    def save_config(self):
+        config_data = {
+            "api_key": self.api_key,
+            "last_model": self.selected_model.get(),
+            "tts_enabled": self.tts_enabled.get()
+        }
+        with open(self.config_file, 'w') as f:
+            json.dump(config_data, f, indent=2)
+    
+    def load_config(self):
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, 'r') as f:
+                    config_data = json.load(f)
+                    self.api_key = config_data.get("api_key", "")
+                    
+                    # Set the API key in entry field after GUI is created
+                    self.root.after(100, self._populate_config_data, config_data)
+            except Exception as e:
+                print(f"Error loading config: {e}")
+    
+    def _populate_config_data(self, config_data):
+        # Populate API key entry
+        if self.api_key:
+            self.api_key_entry.insert(0, self.api_key)
+            self.fetch_models()
+        
+        # Set last used model if available
+        last_model = config_data.get("last_model", "")
+        if last_model and last_model in self.models:
+            self.selected_model.set(last_model)
+        
+        # Set TTS preference
+        self.tts_enabled.set(config_data.get("tts_enabled", False))
     
     def fetch_models(self):
         try:

@@ -19,6 +19,7 @@ venv.bak/
 
 # Application specific
 chat_memory.json
+config.json
 *.log
 
 # OS
