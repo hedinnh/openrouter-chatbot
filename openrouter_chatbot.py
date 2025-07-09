@@ -159,13 +159,59 @@ class OpenRouterChatbot:
         self.clear_btn.bind("<Enter>", lambda e: self.clear_btn.config(bg="#4a4a4a"))
         self.clear_btn.bind("<Leave>", lambda e: self.clear_btn.config(bg=self.button_bg))
         
+        # Log Window Frame
+        log_frame = ttk.Frame(main_frame, style="TFrame")
+        log_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(log_frame, text="System Log:", style="TLabel").pack(anchor=tk.W)
+        
+        # Log Display
+        self.log_display = scrolledtext.ScrolledText(log_frame, height=6, wrap=tk.WORD, 
+                                                     bg=self.chat_bg, fg="#808080",
+                                                     font=("Consolas", 9), bd=0, padx=5, pady=5)
+        self.log_display.pack(fill=tk.X)
+        self.log_display.config(state=tk.DISABLED)
+        
+        # Configure log tags
+        self.log_display.tag_config("error", foreground="#f48771")
+        self.log_display.tag_config("warning", foreground="#dcdcaa")
+        self.log_display.tag_config("success", foreground="#4ec9b0")
+        self.log_display.tag_config("info", foreground="#9cdcfe")
+        
+        # Initial log message
+        self.log_message("Application started", "SUCCESS")
+        if not self.tts_available:
+            self.log_message("TTS unavailable - install espeak for TTS support", "WARNING")
+        
+    def log_message(self, message, level="INFO"):
+        """Add a message to the log window"""
+        self.log_display.config(state=tk.NORMAL)
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # Color coding for different log levels
+        if level == "ERROR":
+            self.log_display.insert(tk.END, f"[{timestamp}] ERROR: ", "error")
+        elif level == "WARNING":
+            self.log_display.insert(tk.END, f"[{timestamp}] WARNING: ", "warning")
+        elif level == "SUCCESS":
+            self.log_display.insert(tk.END, f"[{timestamp}] SUCCESS: ", "success")
+        else:
+            self.log_display.insert(tk.END, f"[{timestamp}] INFO: ", "info")
+        
+        self.log_display.insert(tk.END, f"{message}\n")
+        self.log_display.config(state=tk.DISABLED)
+        self.log_display.see(tk.END)
+        
     def save_api_key(self):
         self.api_key = self.api_key_entry.get()
         if self.api_key:
+            self.log_message("Saving API key...")
             self.save_config()
             self.fetch_models()
+            self.log_message("API key saved successfully", "SUCCESS")
             messagebox.showinfo("Success", "API Key saved successfully!")
         else:
+            self.log_message("No API key provided", "WARNING")
             messagebox.showwarning("Warning", "Please enter an API key")
     
     def save_config(self):
@@ -205,6 +251,7 @@ class OpenRouterChatbot:
     
     def fetch_models(self):
         try:
+            self.log_message("Fetching available models from OpenRouter...")
             headers = {
                 "Authorization": f"Bearer {self.api_key}"
             }
@@ -214,12 +261,23 @@ class OpenRouterChatbot:
                 data = response.json()
                 self.models = [model['id'] for model in data['data']]
                 self.model_dropdown['values'] = self.models
-                if self.models:
+                self.log_message(f"Successfully fetched {len(self.models)} models", "SUCCESS")
+                
+                # Try to preserve the selected model if it still exists
+                current_model = self.selected_model.get()
+                if current_model in self.models:
+                    self.selected_model.set(current_model)
+                elif self.models:
                     self.selected_model.set(self.models[0])
+                    self.log_message(f"Selected model: {self.models[0]}")
             else:
-                messagebox.showerror("Error", f"Failed to fetch models: {response.text}")
+                error_msg = f"Failed to fetch models: {response.text}"
+                self.log_message(error_msg, "ERROR")
+                messagebox.showerror("Error", error_msg)
         except Exception as e:
-            messagebox.showerror("Error", f"Error fetching models: {str(e)}")
+            error_msg = f"Error fetching models: {str(e)}"
+            self.log_message(error_msg, "ERROR")
+            messagebox.showerror("Error", error_msg)
     
     def send_message_event(self, event):
         if not event.state & 0x1:  # Check if Shift is not pressed
@@ -232,10 +290,12 @@ class OpenRouterChatbot:
             return
         
         if not self.api_key:
+            self.log_message("No API key set", "WARNING")
             messagebox.showwarning("Warning", "Please set your API key first")
             return
         
         if not self.selected_model.get():
+            self.log_message("No model selected", "WARNING")
             messagebox.showwarning("Warning", "Please select a model")
             return
         
@@ -248,11 +308,16 @@ class OpenRouterChatbot:
         # Add to conversation history
         self.conversation_history.append({"role": "user", "content": message})
         
+        # Log the request
+        self.log_message(f"Sending message to {self.selected_model.get()}")
+        
         # Send request in thread
         threading.Thread(target=self.get_ai_response, args=(message,), daemon=True).start()
     
     def get_ai_response(self, message):
         try:
+            self.root.after(0, self.log_message, "Preparing API request...")
+            
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"
@@ -266,27 +331,78 @@ class OpenRouterChatbot:
                 "messages": messages
             }
             
+            self.root.after(0, self.log_message, f"Sending request to OpenRouter API...")
+            
+            # First try without streaming to get proper error messages
             response = requests.post("https://openrouter.ai/api/v1/chat/completions", 
-                                   headers=headers, json=data)
+                                   headers=headers, json=data, stream=False)
             
             if response.status_code == 200:
+                self.root.after(0, self.log_message, "Response received, processing...", "SUCCESS")
+                
                 result = response.json()
-                ai_response = result['choices'][0]['message']['content']
+                full_response = result['choices'][0]['message']['content']
+                
+                # Check for thinking tags in the response
+                if '<thinking>' in full_response and '</thinking>' in full_response:
+                    # Extract thinking content
+                    import re
+                    thinking_match = re.search(r'<thinking>(.*?)</thinking>', full_response, re.DOTALL)
+                    if thinking_match:
+                        thinking_content = thinking_match.group(1).strip()
+                        self.root.after(0, self.log_message, f"Model thinking process: {thinking_content}")
+                        # Remove thinking tags from the displayed response
+                        full_response = re.sub(r'<thinking>.*?</thinking>', '', full_response, flags=re.DOTALL).strip()
+                
+                # Log success
+                self.root.after(0, self.log_message, "Response received successfully", "SUCCESS")
                 
                 # Display and save response
-                self.root.after(0, self.display_message, "Assistant", ai_response, "assistant")
-                self.conversation_history.append({"role": "assistant", "content": ai_response})
+                self.root.after(0, self.display_message, "Assistant", full_response, "assistant")
+                self.conversation_history.append({"role": "assistant", "content": full_response})
                 
                 # Save to memory
                 self.save_memory()
                 
                 # TTS if enabled
                 if self.tts_enabled.get():
-                    threading.Thread(target=self.speak_text, args=(ai_response,), daemon=True).start()
+                    self.root.after(0, self.log_message, "Starting TTS...")
+                    threading.Thread(target=self.speak_text, args=(full_response,), daemon=True).start()
             else:
-                self.root.after(0, messagebox.showerror, "Error", f"API Error: {response.text}")
+                # Parse error response
+                error_data = response.json()
+                error_msg = "Unknown error"
+                
+                if 'error' in error_data:
+                    error_info = error_data['error']
+                    error_msg = error_info.get('message', 'Unknown error')
+                    
+                    # Log detailed error info
+                    self.root.after(0, self.log_message, f"API Error {response.status_code}: {error_msg}", "ERROR")
+                    
+                    if 'metadata' in error_info:
+                        metadata = error_info['metadata']
+                        if 'raw' in metadata:
+                            self.root.after(0, self.log_message, f"Raw error: {metadata['raw']}", "ERROR")
+                        if 'provider_name' in metadata:
+                            self.root.after(0, self.log_message, f"Provider: {metadata['provider_name']}", "ERROR")
+                    
+                    # Check for specific error types
+                    if "No instances available" in error_msg:
+                        self.root.after(0, self.log_message, 
+                                      "This model may not exist or is currently unavailable. Try selecting a different model.", 
+                                      "WARNING")
+                
+                self.root.after(0, messagebox.showerror, "API Error", 
+                               f"Error {response.status_code}: {error_msg}\n\nPlease check the log for details.")
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Network error: {str(e)}"
+            self.root.after(0, self.log_message, error_msg, "ERROR")
+            self.root.after(0, messagebox.showerror, "Network Error", error_msg)
         except Exception as e:
-            self.root.after(0, messagebox.showerror, "Error", f"Error: {str(e)}")
+            error_msg = f"Unexpected error: {str(e)}"
+            self.root.after(0, self.log_message, error_msg, "ERROR")
+            self.root.after(0, messagebox.showerror, "Error", error_msg)
     
     def speak_text(self, text):
         if not self.tts_available or not self.tts_engine:
