@@ -8,28 +8,28 @@ from datetime import datetime
 import re
 import sys
 
-# Suppress ALSA audio warnings on Linux
+# Suppress audio warnings and handle missing sound cards gracefully
+pyttsx3 = None
 if sys.platform.startswith('linux'):
-    # Set environment variables to suppress ALSA warnings
-    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
-    os.environ['ALSA_CARD'] = 'null'
+    # Check if any sound cards are available
+    try:
+        import subprocess
+        result = subprocess.run(['aplay', '-l'], capture_output=True, text=True)
+        has_sound_card = 'card' in result.stdout.lower()
+    except:
+        has_sound_card = False
     
-    # Redirect stderr during pyttsx3 import
-    import subprocess
-    devnull = open(os.devnull, 'w')
-    old_stderr = os.dup(2)
-    os.dup2(devnull.fileno(), 2)
-
-try:
-    import pyttsx3
-except ImportError:
-    pyttsx3 = None
-finally:
-    # Restore stderr
-    if sys.platform.startswith('linux'):
-        os.dup2(old_stderr, 2)
-        os.close(old_stderr)
-        devnull.close()
+    if has_sound_card:
+        try:
+            import pyttsx3
+        except ImportError:
+            pass
+else:
+    # On non-Linux systems, try to import normally
+    try:
+        import pyttsx3
+    except ImportError:
+        pass
 
 class OpenRouterChatbot:
     def __init__(self, root):
@@ -48,28 +48,30 @@ class OpenRouterChatbot:
         
         self.root.configure(bg=self.bg_color)
         
-        # Initialize TTS engine with suppressed output
+        # Initialize TTS engine only if pyttsx3 is available
         self.tts_engine = None
         self.tts_available = False
-        if sys.platform.startswith('linux'):
-            # Suppress all output during TTS initialization
-            import io
-            old_stdout = sys.stdout
-            old_stderr = sys.stderr
-            sys.stdout = io.StringIO()
-            sys.stderr = io.StringIO()
         
-        try:
-            if pyttsx3:
+        # Skip TTS initialization if pyttsx3 is not available (no sound card)
+        if pyttsx3:
+            if sys.platform.startswith('linux'):
+                # Suppress all output during TTS initialization
+                import io
+                old_stdout = sys.stdout
+                old_stderr = sys.stderr
+                sys.stdout = io.StringIO()
+                sys.stderr = io.StringIO()
+            
+            try:
                 self.tts_engine = pyttsx3.init()
                 self.tts_available = True
-        except Exception:
-            # Silently fail - TTS just won't be available
-            pass
-        finally:
-            if sys.platform.startswith('linux'):
-                sys.stdout = old_stdout
-                sys.stderr = old_stderr
+            except Exception:
+                # Silently fail - TTS just won't be available
+                pass
+            finally:
+                if sys.platform.startswith('linux'):
+                    sys.stdout = old_stdout
+                    sys.stderr = old_stderr
         
         self.tts_enabled = tk.BooleanVar(value=False)
         

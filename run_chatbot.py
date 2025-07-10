@@ -7,11 +7,30 @@ import os
 import sys
 import subprocess
 
-# Suppress ALSA warnings
+# Suppress ALSA warnings completely
 if sys.platform.startswith('linux'):
-    # Run the main program with stderr redirected to devnull
+    # Set environment variables to suppress audio warnings
+    env = os.environ.copy()
+    env['ALSA_CARD'] = 'null'
+    env['SDL_AUDIODRIVER'] = 'dummy'
+    
+    # Run the main program with both stdout and stderr redirected for complete silence
     with open(os.devnull, 'w') as devnull:
-        subprocess.run([sys.executable, 'openrouter_chatbot.py'], stderr=devnull)
+        # Start the process with suppressed output
+        proc = subprocess.Popen(
+            [sys.executable, 'openrouter_chatbot.py'], 
+            stderr=devnull,
+            stdout=subprocess.PIPE,
+            env=env
+        )
+        
+        # Only print actual application output, not ALSA warnings
+        for line in proc.stdout:
+            decoded = line.decode('utf-8', errors='ignore')
+            if not any(x in decoded.lower() for x in ['alsa', 'aplay', 'audio', 'pcm', 'card']):
+                print(decoded, end='')
+        
+        proc.wait()
 else:
     # On non-Linux systems, just run normally
     subprocess.run([sys.executable, 'openrouter_chatbot.py'])
