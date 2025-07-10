@@ -146,6 +146,7 @@ class OpenRouterChatbot:
         self.chat_display.tag_config("assistant", foreground="#9cdcfe")
         self.chat_display.tag_config("system", foreground="#ce9178", font=("Arial", 9, "italic"))
         self.chat_display.tag_config("timestamp", foreground="#858585", font=("Arial", 8))
+        self.chat_display.tag_config("thinking", foreground="#d4d4d4", font=("Arial", 10, "italic"), background="#2d2d2d")
         
         # Input Frame
         input_frame = ttk.Frame(main_frame, style="TFrame")
@@ -361,22 +362,31 @@ class OpenRouterChatbot:
                 full_response = result['choices'][0]['message']['content']
                 
                 # Check for thinking tags in the response
+                thinking_content = None
+                display_response = full_response
+                
                 if '<thinking>' in full_response and '</thinking>' in full_response:
                     # Extract thinking content
                     import re
                     thinking_match = re.search(r'<thinking>(.*?)</thinking>', full_response, re.DOTALL)
                     if thinking_match:
                         thinking_content = thinking_match.group(1).strip()
-                        self.root.after(0, self.log_message, f"Model thinking process: {thinking_content}")
+                        self.root.after(0, self.log_message, "Model thinking process detected", "INFO")
                         # Remove thinking tags from the displayed response
-                        full_response = re.sub(r'<thinking>.*?</thinking>', '', full_response, flags=re.DOTALL).strip()
+                        display_response = re.sub(r'<thinking>.*?</thinking>', '', full_response, flags=re.DOTALL).strip()
                 
                 # Log success
                 self.root.after(0, self.log_message, "Response received successfully", "SUCCESS")
                 
-                # Display and save response
-                self.root.after(0, self.display_message, "Assistant", full_response, "assistant")
-                self.conversation_history.append({"role": "assistant", "content": full_response})
+                # Display thinking process if present
+                if thinking_content:
+                    self.root.after(0, self.display_thinking, "Assistant (thinking)", thinking_content)
+                
+                # Display actual response
+                self.root.after(0, self.display_message, "Assistant", display_response, "assistant")
+                
+                # Save full response (without thinking tags) to history
+                self.conversation_history.append({"role": "assistant", "content": display_response})
                 
                 # Save to memory
                 self.save_memory()
@@ -443,6 +453,31 @@ class OpenRouterChatbot:
         # Add sender and message
         self.chat_display.insert(tk.END, f"{sender}: ", tag)
         self.chat_display.insert(tk.END, f"{message}\n\n")
+        
+        self.chat_display.config(state=tk.DISABLED)
+        self.chat_display.see(tk.END)
+    
+    def display_thinking(self, sender, thinking_content):
+        """Display thinking process in a special format"""
+        self.chat_display.config(state=tk.NORMAL)
+        
+        # Add timestamp
+        timestamp = datetime.now().strftime("%H:%M")
+        self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+        
+        # Add thinking header
+        self.chat_display.insert(tk.END, f"{sender}:\n", "thinking")
+        
+        # Add thinking content in a box
+        self.chat_display.insert(tk.END, "┌─ Thinking Process ─────────────────────────────────\n", "thinking")
+        
+        # Process and display thinking content with proper indentation
+        lines = thinking_content.split('\n')
+        for line in lines:
+            self.chat_display.insert(tk.END, "│ ", "thinking")
+            self.chat_display.insert(tk.END, f"{line}\n", "thinking")
+        
+        self.chat_display.insert(tk.END, "└────────────────────────────────────────────────────\n\n", "thinking")
         
         self.chat_display.config(state=tk.DISABLED)
         self.chat_display.see(tk.END)
