@@ -10,12 +10,15 @@ import sys
 
 # Suppress ALSA audio warnings on Linux
 if sys.platform.startswith('linux'):
+    # Set environment variables to suppress ALSA warnings
     os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
-    # Suppress ALSA errors by redirecting file descriptors
+    os.environ['ALSA_CARD'] = 'null'
+    
+    # Redirect stderr during pyttsx3 import
     import subprocess
-    with open(os.devnull, 'w') as devnull:
-        old_stderr = os.dup(2)
-        os.dup2(devnull.fileno(), 2)
+    devnull = open(os.devnull, 'w')
+    old_stderr = os.dup(2)
+    os.dup2(devnull.fileno(), 2)
 
 try:
     import pyttsx3
@@ -23,9 +26,10 @@ except ImportError:
     pyttsx3 = None
 finally:
     # Restore stderr
-    if sys.platform.startswith('linux') and 'old_stderr' in locals():
+    if sys.platform.startswith('linux'):
         os.dup2(old_stderr, 2)
         os.close(old_stderr)
+        devnull.close()
 
 class OpenRouterChatbot:
     def __init__(self, root):

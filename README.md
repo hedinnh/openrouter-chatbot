@@ -37,7 +37,12 @@ pip install -r requirements.txt
 
 1. Run the application:
 ```bash
-python openrouter_chatbot.py
+python3 openrouter_chatbot.py
+```
+
+Or use the launcher script (Linux) to suppress ALSA warnings:
+```bash
+./run_chatbot.py
 ```
 
 2. Enter your OpenRouter API key and click "Save Key"
