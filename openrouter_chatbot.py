@@ -11,10 +11,11 @@ import sys
 # Suppress ALSA audio warnings on Linux
 if sys.platform.startswith('linux'):
     os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
-    # Redirect stderr temporarily during pyttsx3 import
-    import io
-    old_stderr = sys.stderr
-    sys.stderr = io.StringIO()
+    # Suppress ALSA errors by redirecting file descriptors
+    import subprocess
+    with open(os.devnull, 'w') as devnull:
+        old_stderr = os.dup(2)
+        os.dup2(devnull.fileno(), 2)
 
 try:
     import pyttsx3
@@ -22,8 +23,9 @@ except ImportError:
     pyttsx3 = None
 finally:
     # Restore stderr
-    if sys.platform.startswith('linux'):
-        sys.stderr = old_stderr
+    if sys.platform.startswith('linux') and 'old_stderr' in locals():
+        os.dup2(old_stderr, 2)
+        os.close(old_stderr)
 
 class OpenRouterChatbot:
     def __init__(self, root):
@@ -42,15 +44,28 @@ class OpenRouterChatbot:
         
         self.root.configure(bg=self.bg_color)
         
-        # Initialize TTS engine
+        # Initialize TTS engine with suppressed output
         self.tts_engine = None
         self.tts_available = False
+        if sys.platform.startswith('linux'):
+            # Suppress all output during TTS initialization
+            import io
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
+        
         try:
-            self.tts_engine = pyttsx3.init()
-            self.tts_available = True
-        except Exception as e:
-            print(f"TTS initialization failed: {e}")
-            print("TTS will be disabled. Install espeak on Linux: sudo apt-get install espeak")
+            if pyttsx3:
+                self.tts_engine = pyttsx3.init()
+                self.tts_available = True
+        except Exception:
+            # Silently fail - TTS just won't be available
+            pass
+        finally:
+            if sys.platform.startswith('linux'):
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
         
         self.tts_enabled = tk.BooleanVar(value=False)
         
